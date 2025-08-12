@@ -5,11 +5,14 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
     const llvm = b.option(bool, "llvm", "Use LLVM backend") orelse true;
 
+    const game = b.addModule("gomoku_game", .{
+        .root_source_file = b.path("src/game.zig"),
+    });
     _ = b.addModule("gomoku_protocol", .{
         .root_source_file = b.path("src/protocol.zig"),
-    });
-    _ = b.addModule("gomoku_game", .{
-        .root_source_file = b.path("src/game.zig"),
+        .imports = &.{
+            .{ .name = "gomoku_game", .module = game },
+        },
     });
 
     const test_step_protocol = b.step("test_protocol", "Run protocol unit tests");
@@ -21,6 +24,8 @@ pub fn build(b: *std.Build) !void {
         .test_runner = .{ .path = b.path("test_runner.zig"), .mode = .simple },
         .use_llvm = llvm,
     });
+
+    unit_tests_protocol.root_module.addImport("gomoku_game", game);
 
     const run_unit_tests_protocol = b.addRunArtifact(unit_tests_protocol);
     run_unit_tests_protocol.has_side_effects = true;

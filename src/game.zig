@@ -1,8 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const utils = @import("utils.zig");
-
 // COLORS
 const color_red: []const u8 = "\x1b[31m";
 const color_blue: []const u8 = "\x1b[34m";
@@ -65,13 +63,15 @@ pub const Game = struct {
 
     size: u32,
     board: []CellState,
+    allocator: std.mem.Allocator,
 
-    pub fn init(size: u32) Allocator.Error!Game {
-        const b = try utils.allocator.alloc(CellState, size * size);
+    pub fn init(size: u32, allocator: std.mem.Allocator) Allocator.Error!Game {
+        const b = try allocator.alloc(CellState, size * size);
         @memset(b, .Empty);
         return .{
             .size = size,
             .board = b,
+            .allocator = allocator,
         };
     }
 
@@ -156,6 +156,6 @@ pub const Game = struct {
     }
 
     pub fn deinit(self: *const Self) void {
-        utils.allocator.free(self.board);
+        self.allocator.free(self.board);
     }
 };

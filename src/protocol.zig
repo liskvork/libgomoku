@@ -1,7 +1,31 @@
 const std = @import("std");
 
-const utils = @import("utils.zig");
-const game = @import("game.zig");
+const game = @import("gomoku_game");
+
+const SliceError = error{
+    SliceTooSmall,
+    NonWhitespaceInTrim,
+};
+
+fn all_respect(T: type, slice: []const T, predicate: fn (val: T) bool) bool {
+    for (slice) |i| {
+        if (!predicate(i))
+            return false;
+    }
+    return true;
+}
+
+inline fn is_all_whitespace(slice: []const u8) bool {
+    return all_respect(u8, slice, std.ascii.isWhitespace);
+}
+
+fn skip_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
+    if (slice.len < n)
+        return SliceError.SliceTooSmall;
+    if (!is_all_whitespace(slice[0..n]))
+        return SliceError.NonWhitespaceInTrim;
+    return slice[n..];
+}
 
 pub const ClientInfo = struct {
     const Self = @This();
@@ -95,7 +119,7 @@ const log_starters = [_][]const u8{
 
 fn parse_log(msg: []const u8, idx: usize, allocator: std.mem.Allocator) !?ClientCommand {
     const starter = log_starters[idx];
-    const ws_data = utils.skip_n_whitespace(msg[starter.len..], 1) catch {
+    const ws_data = skip_n_whitespace(msg[starter.len..], 1) catch {
         return null;
     };
 
@@ -114,7 +138,7 @@ fn parse_log(msg: []const u8, idx: usize, allocator: std.mem.Allocator) !?Client
 
 fn parse_ok(msg: []const u8) ?ClientCommand {
     const rest = msg[2..]; // Skip the start
-    if (!utils.is_all_whitespace(rest))
+    if (!is_all_whitespace(rest))
         return null;
     return .ResponseOK;
 }
@@ -123,12 +147,12 @@ fn parse_ko(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
     const rest = msg[2..];
 
     // Check if there is a message with the KO
-    if (utils.is_all_whitespace(rest))
+    if (is_all_whitespace(rest))
         return .{
             .ResponseKO = try ClientResponseKO.init(null, allocator),
         };
 
-    const ws_data = utils.skip_n_whitespace(rest, 1) catch {
+    const ws_data = skip_n_whitespace(rest, 1) catch {
         return null;
     };
 
