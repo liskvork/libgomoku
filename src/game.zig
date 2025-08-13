@@ -90,42 +90,47 @@ pub const Game = struct {
         return self.board[self.get_idx_from_pos(pos)];
     }
 
-    // TODO: Optimize and rewrite this function, it is ultra ugly
     fn is_move_winning(self: *const Self, pos: Position) bool {
-        // Absolutely horrendous function, but it's fast enough so idrc
-        // Taken from https://stackoverflow.com/a/38211417 cause I couldn't be bothered :)
         const played = self.at(pos);
+        if (played == .empty) return false;
 
-        // horizontalCheck
-        for (0..self.size - 4) |j| {
-            for (0..self.size) |i| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i, j + 1 }) == played and self.at(.{ i, j + 2 }) == played and self.at(.{ i, j + 3 }) == played and self.at(.{ i, j + 4 }) == played) {
-                    return true;
+        // A list of directions to check.
+        const directions = [_]Position{
+            .{ .x = 1, .y = 0 }, // - Horizontal
+            .{ .x = 0, .y = 1 }, // | Vertical
+            .{ .x = 1, .y = 1 }, // \ Main diagonal
+            .{ .x = 1, .y = -1 }, // / Anti-diagonal
+        };
+
+        for (directions) |direction| {
+            var count: u8 = 1;
+
+            // Check in the positive direction
+            var current_pos = pos;
+            for (0..4) |_| {
+                current_pos.x += direction.x;
+                current_pos.y += direction.y;
+                if (self.at(current_pos) == played) {
+                    count += 1;
+                } else {
+                    break;
                 }
             }
-        }
-        // verticalCheck
-        for (0..self.size - 4) |i| {
-            for (0..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i + 1, j }) == played and self.at(.{ i + 2, j }) == played and self.at(.{ i + 3, j }) == played and self.at(.{ i + 4, j }) == played) {
-                    return true;
+
+            // Check in the negative direction
+            current_pos = pos;
+            for (0..4) |_| {
+                current_pos.x -= direction.x;
+                current_pos.y -= direction.y;
+                if (self.at(current_pos) == played) {
+                    count += 1;
+                } else {
+                    break;
                 }
             }
-        }
-        // ascendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (0..self.size - 4) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j + 1 }) == played and self.at(.{ i - 2, j + 2 }) == played and self.at(.{ i - 3, j + 3 }) == played and self.at(.{ i - 4, j + 4 }) == played) {
-                    return true;
-                }
-            }
-        }
-        // descendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (4..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j - 1 }) == played and self.at(.{ i - 2, j - 2 }) == played and self.at(.{ i - 3, j - 3 }) == played and self.at(.{ i - 4, j - 4 }) == played) {
-                    return true;
-                }
+
+            if (count >= 5) {
+                return true;
             }
         }
         return false;
