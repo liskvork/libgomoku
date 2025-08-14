@@ -52,6 +52,7 @@ pub const MoveType = enum {
 };
 
 pub const Position = @Vector(2, usize);
+pub const IPosition = @Vector(2, isize);
 
 pub const Error = error{
     OutOfBound,
@@ -90,48 +91,37 @@ pub const Game = struct {
         return self.board[self.get_idx_from_pos(pos)];
     }
 
-    fn is_move_winning(self: *const Self, pos: Position) bool {
-        const played = self.at(pos);
-        if (played == .empty) return false;
+    fn count_in_line(self: *const Self, start_pos: Position, direction: IPosition, comptime max_count: u32) u32 {
+        const state = self.at(start_pos);
+        var current_pos = start_pos;
 
-        // A list of directions to check.
-        const directions = [_]Position{
-            .{ .x = 1, .y = 0 }, // - Horizontal
-            .{ .x = 0, .y = 1 }, // | Vertical
-            .{ .x = 1, .y = 1 }, // \ Main diagonal
-            .{ .x = 1, .y = -1 }, // / Anti-diagonal
+        inline for (0..max_count) |i| {
+            if (!self.is_pos_inbound(current_pos) or self.at(current_pos) != state) return i;
+
+            const new_x = @as(isize, @intCast(current_pos[0])) + direction[0];
+            const new_y = @as(isize, @intCast(current_pos[1])) + direction[1];
+            if (new_x < 0 or new_y < 0) return i + 1;
+
+            current_pos = .{ @as(usize, @intCast(new_x)), @as(usize, @intCast(new_y)) };
+        }
+        return max_count;
+    }
+
+    fn is_move_winning(self: *const Self, pos: Position) bool {
+        const played_cell = self.at(pos);
+        if (played_cell == .Empty) return false;
+        const cells_to_align = 5;
+        const directions = [_]struct { dir1: IPosition, dir2: IPosition }{
+            .{ .dir1 = .{ 1, 0 }, .dir2 = .{ -1, 0 } }, // Horizontal (-)
+            .{ .dir1 = .{ 0, 1 }, .dir2 = .{ 0, -1 } }, // Vertical (|)
+            .{ .dir1 = .{ 1, -1 }, .dir2 = .{ -1, 1 } }, // Main diagonal (\)
+            .{ .dir1 = .{ 1, 1 }, .dir2 = .{ -1, -1 } }, // Anti-diagonal (/)
         };
 
-        for (directions) |direction| {
-            var count: u8 = 1;
-
-            // Check in the positive direction
-            var current_pos = pos;
-            for (0..4) |_| {
-                current_pos.x += direction.x;
-                current_pos.y += direction.y;
-                if (self.at(current_pos) == played) {
-                    count += 1;
-                } else {
-                    break;
-                }
-            }
-
-            // Check in the negative direction
-            current_pos = pos;
-            for (0..4) |_| {
-                current_pos.x -= direction.x;
-                current_pos.y -= direction.y;
-                if (self.at(current_pos) == played) {
-                    count += 1;
-                } else {
-                    break;
-                }
-            }
-
-            if (count >= 5) {
-                return true;
-            }
+        inline for (directions) |direction_pair| {
+            const count = self.count_in_line(pos, direction_pair.dir1, cells_to_align) +
+                self.count_in_line(pos, direction_pair.dir2, cells_to_align) - 1;
+            if (count >= cells_to_align) return true;
         }
         return false;
     }
@@ -151,12 +141,12 @@ pub const Game = struct {
     pub fn dump(self: *const Self, output_file: std.fs.File, colors: bool, pos_to_highlight: Position) !void {
         for (0..self.size) |x| {
             for (0..self.size) |y| {
-                try output_file.writeAll(self.at(.{ x, y }).to_slice(
+                _ = try output_file.writeAll(self.at(.{ x, y }).to_slice(
                     colors,
                     pos_to_highlight[0] == x and pos_to_highlight[1] == y,
                 ));
             }
-            try output_file.writeAll("\n");
+            _ = try output_file.writeAll("\n");
         }
     }
 
@@ -164,3 +154,135 @@ pub const Game = struct {
         self.allocator.free(self.board);
     }
 };
+
+test "get_idx_from_pos calculates correct index" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var game = try Game.init(10, allocator);
+    defer game.deinit();
+
+    _ = try std.testing.expectEqual(0, game.get_idx_from_pos(.{ 0, 0 }));
+    _ = try std.testing.expectEqual(5, game.get_idx_from_pos(.{ 5, 0 }));
+    _ = try std.testing.expectEqual(10, game.get_idx_from_pos(.{ 0, 1 }));
+    _ = try std.testing.expectEqual(55, game.get_idx_from_pos(.{ 5, 5 }));
+    _ = try std.testing.expectEqual(99, game.get_idx_from_pos(.{ 9, 9 }));
+}
+
+test "is_pos_inbound correctly identifies boundaries" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var game = try Game.init(10, allocator);
+    defer game.deinit();
+
+    // Test positions inside the bounds
+    _ = try std.testing.expect(game.is_pos_inbound(.{ 0, 0 }));
+    _ = try std.testing.expect(game.is_pos_inbound(.{ 9, 9 }));
+    _ = try std.testing.expect(game.is_pos_inbound(.{ 5, 5 }));
+
+    // Test positions outside the bounds
+    _ = try std.testing.expect(!game.is_pos_inbound(.{ 10, 0 }));
+    _ = try std.testing.expect(!game.is_pos_inbound(.{ 0, 10 }));
+    _ = try std.testing.expect(!game.is_pos_inbound(.{ 10, 10 }));
+    _ = try std.testing.expect(!game.is_pos_inbound(.{ 100, 100 }));
+}
+
+test "is_move_winning detects wins and non-wins" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var game = try Game.init(10, allocator);
+    defer game.deinit();
+
+    // Horizontal win
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try game.place(.{ 6, 5 }, .Player1);
+    _ = try std.testing.expect(game.is_move_winning(.{ 6, 5 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 5, 5 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 4, 5 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 3, 5 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 2, 5 }));
+
+    _ = try std.testing.expect(!game.is_move_winning(.{ 6, 4 }));
+
+    // Vertical win
+    @memset(game.board, .Empty);
+    _ = try game.place(.{ 5, 2 }, .Player2);
+    _ = try game.place(.{ 5, 3 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+    _ = try game.place(.{ 5, 5 }, .Player2);
+    _ = try game.place(.{ 5, 6 }, .Player2);
+    _ = try std.testing.expect(game.is_move_winning(.{ 5, 6 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 5, 2 }));
+
+    // Descending diagonal win
+    @memset(game.board, .Empty);
+    _ = try game.place(.{ 1, 1 }, .Player1);
+    _ = try game.place(.{ 2, 2 }, .Player1);
+    _ = try game.place(.{ 3, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try std.testing.expect(game.is_move_winning(.{ 5, 5 }));
+    _ = try std.testing.expect(game.is_move_winning(.{ 1, 1 }));
+
+    // Ascending diagonal win
+    @memset(game.board, .Empty);
+    _ = try game.place(.{ 8, 1 }, .Player2);
+    _ = try game.place(.{ 7, 2 }, .Player2);
+    _ = try game.place(.{ 6, 3 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+    _ = try game.place(.{ 4, 5 }, .Player2);
+    _ = try std.testing.expect(game.is_move_winning(.{ 7, 2 }));
+
+    // No win (incomplete line)
+    @memset(game.board, .Empty);
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try std.testing.expect(!game.is_move_winning(.{ 5, 5 }));
+}
+
+test "place handles moves and returns correct win status" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var game = try Game.init(10, allocator);
+    defer game.deinit();
+
+    // Test a valid move that doesn't win
+    var is_win = try game.place(.{ 5, 5 }, .Player1);
+    _ = try std.testing.expectEqual(false, is_win);
+    _ = try std.testing.expectEqual(CellState.Player1, game.at(.{ 5, 5 }));
+
+    // Test placing on an already taken cell
+    is_win = game.place(.{ 5, 5 }, .Player2) catch |err| {
+        _ = try std.testing.expectEqual(Error.AlreadyTaken, err);
+        return;
+    };
+    _ = try std.testing.expectEqual(false, is_win);
+
+    // Test placing out of bounds
+    is_win = game.place(.{ 11, 11 }, .Player2) catch |err| {
+        _ = try std.testing.expectEqual(Error.OutOfBound, err);
+        return;
+    };
+    _ = try std.testing.expectEqual(false, is_win);
+
+    // Test a move that leads to a win
+    @memset(game.board, .Empty);
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    is_win = try game.place(.{ 6, 5 }, .Player1);
+    _ = try std.testing.expectEqual(true, is_win);
+}
