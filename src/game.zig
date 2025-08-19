@@ -52,7 +52,6 @@ pub const MoveType = enum {
 };
 
 pub const Position = @Vector(2, usize);
-const Direction = @Vector(2, isize);
 
 pub const Error = error{
     OutOfBound,
@@ -101,11 +100,12 @@ pub const Game = struct {
         return self.internal_board[self.get_idx_from_pos(pos)];
     }
 
-    fn count_in_line(self: *const Self, start_pos: Position, direction: Direction, max_count: comptime_int) u32 {
+    fn count_in_line(self: *const Self, start_pos: Position, comptime direction: @Vector(2, isize)) u32 {
         const state = self.at(start_pos);
-        var current_pos = @as(Direction, @intCast(start_pos));
+        std.debug.assert(state != .Empty);
+        var current_pos: @Vector(2, isize) = @intCast(start_pos);
 
-        inline for (0..max_count) |i| {
+        inline for (0..cells_to_align) |i| {
             if (!self.is_ipos_inbound(current_pos)) return i;
 
             const pos = @as(Position, @intCast(current_pos));
@@ -113,13 +113,13 @@ pub const Game = struct {
 
             current_pos = current_pos + direction;
         }
-        return max_count;
+        return cells_to_align;
     }
 
     fn is_move_winning(self: *const Self, pos: Position) bool {
         const played_cell = self.at(pos);
         std.debug.assert(played_cell != .Empty);
-        const directions = [_]Direction{
+        const directions = [_]@Vector(2, isize){
             .{ 1, 0 }, // Horizontal (-)
             .{ 0, 1 }, // Vertical (|)
             .{ 1, -1 }, // Main diagonal (\)
@@ -127,8 +127,8 @@ pub const Game = struct {
         };
 
         inline for (directions) |dir| {
-            const count = self.count_in_line(pos, dir, cells_to_align) +
-                self.count_in_line(pos, -dir, cells_to_align) - 1;
+            const count = self.count_in_line(pos, dir) +
+                self.count_in_line(pos, -dir) - 1;
             if (count >= cells_to_align) return true;
         }
         return false;
