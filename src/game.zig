@@ -267,6 +267,92 @@ test "is_move_winning does not crash on near border check" {
     try std.testing.expect(game.is_move_winning(.{ 1, 2 }));
 }
 
+test "is_move_winning winning move at negative extremity" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 0 }, .Player1);
+    _ = try game.place(.{ 1, 0 }, .Player1);
+    _ = try game.place(.{ 2, 0 }, .Player1);
+    _ = try game.place(.{ 3, 0 }, .Player1);
+    _ = try game.place(.{ 4, 0 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 4, 0 }));
+}
+
+test "is_move_winning winning move at postive extremity" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 0 }, .Player1);
+    _ = try game.place(.{ 1, 0 }, .Player1);
+    _ = try game.place(.{ 2, 0 }, .Player1);
+    _ = try game.place(.{ 3, 0 }, .Player1);
+    _ = try game.place(.{ 4, 0 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 0, 0 }));
+}
+
+test "is_move_winning line broke with another player piece" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 1, 1 }, .Player1);
+    _ = try game.place(.{ 2, 2 }, .Player1);
+    _ = try game.place(.{ 3, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player2);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try game.place(.{ 6, 6 }, .Player1);
+    try std.testing.expect(!game.is_move_winning(.{ 3, 3 }));
+}
+
+test "is_move_winning isolated piece within ennemy line" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 1 }, .Player1);
+    _ = try game.place(.{ 0, 2 }, .Player1);
+    _ = try game.place(.{ 0, 3 }, .Player1);
+    _ = try game.place(.{ 0, 4 }, .Player2);
+    _ = try game.place(.{ 0, 5 }, .Player1);
+    _ = try game.place(.{ 0, 6 }, .Player1);
+    try std.testing.expect(!game.is_move_winning(.{ 0, 4 }));
+}
+
+test "is_move_winning intersection of 2 winning lines (Player 2 last move)" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 4, 1 }, .Player1);
+    _ = try game.place(.{ 4, 2 }, .Player1);
+    _ = try game.place(.{ 4, 3 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+
+    _ = try game.place(.{ 1, 4 }, .Player2);
+    _ = try game.place(.{ 2, 4 }, .Player2);
+    _ = try game.place(.{ 3, 4 }, .Player2);
+    _ = try game.place(.{ 4, 4 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+
+    try std.testing.expect(game.is_move_winning(.{ 4, 4 }));
+}
+
+test "is_move_winning intersection of 2 winning lines (Player 1 last move)" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 4, 1 }, .Player1);
+    _ = try game.place(.{ 4, 2 }, .Player1);
+    _ = try game.place(.{ 4, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+
+    _ = try game.place(.{ 1, 4 }, .Player2);
+    _ = try game.place(.{ 2, 4 }, .Player2);
+    _ = try game.place(.{ 3, 4 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+
+    try std.testing.expect(game.is_move_winning(.{ 4, 4 }));
+}
+
 test "places a valid move that doesn't win" {
     var game = try Game.init(10, std.testing.allocator);
     defer game.deinit();
@@ -299,6 +385,5 @@ test "places a move that leads to a win" {
     _ = try game.place(.{ 3, 5 }, .Player1);
     _ = try game.place(.{ 4, 5 }, .Player1);
     _ = try game.place(.{ 5, 5 }, .Player1);
-    const is_win = try game.place(.{ 6, 5 }, .Player1);
-    try std.testing.expectEqual(true, is_win);
+    try std.testing.expect(try game.place(.{ 6, 5 }, .Player1));
 }
