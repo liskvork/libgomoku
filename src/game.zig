@@ -64,7 +64,7 @@ pub const Game = struct {
     const cells_to_align = 5;
 
     size: u32,
-    board: []CellState,
+    internal_board: []CellState,
     allocator: std.mem.Allocator,
 
     pub fn init(size: u32, allocator: std.mem.Allocator) Allocator.Error!Game {
@@ -72,18 +72,18 @@ pub const Game = struct {
         @memset(b, .Empty);
         return .{
             .size = size,
-            .board = b,
+            .internal_board = b,
             .allocator = allocator,
         };
     }
 
     inline fn reset(self: *Self) void {
-        @memset(self.board, .Empty);
+        @memset(self.internal_board, .Empty);
     }
 
     inline fn get_idx_from_pos(self: *const Self, pos: Position) usize {
         const idx = pos[0] + pos[1] * self.size;
-        std.debug.assert(idx < self.board.len);
+        std.debug.assert(idx < self.internal_board.len);
         return idx;
     }
 
@@ -98,7 +98,7 @@ pub const Game = struct {
     }
 
     inline fn at(self: *const Self, pos: Position) CellState {
-        return self.board[self.get_idx_from_pos(pos)];
+        return self.internal_board[self.get_idx_from_pos(pos)];
     }
 
     fn count_in_line(self: *const Self, start_pos: Position, direction: Direction, max_count: comptime_int) u32 {
@@ -140,9 +140,9 @@ pub const Game = struct {
         if (!is_pos_inbound(self, pos))
             return Error.OutOfBound;
         const idx = get_idx_from_pos(self, pos);
-        if (self.board[idx] != .Empty)
+        if (self.internal_board[idx] != .Empty)
             return Error.AlreadyTaken;
-        self.board[idx] = move_type.to_cell();
+        self.internal_board[idx] = move_type.to_cell();
         return self.is_move_winning(pos);
     }
 
@@ -159,7 +159,7 @@ pub const Game = struct {
     }
 
     pub fn deinit(self: *const Self) void {
-        self.allocator.free(self.board);
+        self.allocator.free(self.internal_board);
     }
 };
 
