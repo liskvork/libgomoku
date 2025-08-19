@@ -52,6 +52,7 @@ pub const MoveType = enum {
 };
 
 pub const Position = @Vector(2, usize);
+const Direction = @Vector(2, isize);
 
 pub const Error = error{
     OutOfBound,
@@ -60,6 +61,7 @@ pub const Error = error{
 
 pub const Game = struct {
     const Self = @This();
+    const cells_to_align = 5;
 
     size: u32,
     board: []CellState,
@@ -75,6 +77,10 @@ pub const Game = struct {
         };
     }
 
+    inline fn reset(self: *Self) void {
+        @memset(self.board, .Empty);
+    }
+
     inline fn get_idx_from_pos(self: *const Self, pos: Position) usize {
         const idx = pos[0] + pos[1] * self.size;
         std.debug.assert(idx < self.board.len);
@@ -86,47 +92,44 @@ pub const Game = struct {
         return pos[0] < s and pos[1] < s;
     }
 
+    inline fn is_ipos_inbound(self: *const Self, pos: @Vector(2, isize)) bool {
+        const s: isize = @intCast(self.size);
+        return pos[0] >= 0 and pos[1] >= 0 and pos[0] < s and pos[1] < s;
+    }
+
     inline fn at(self: *const Self, pos: Position) CellState {
         return self.board[self.get_idx_from_pos(pos)];
     }
 
-    // TODO: Optimize and rewrite this function, it is ultra ugly
-    fn is_move_winning(self: *const Self, pos: Position) bool {
-        // Absolutely horrendous function, but it's fast enough so idrc
-        // Taken from https://stackoverflow.com/a/38211417 cause I couldn't be bothered :)
-        const played = self.at(pos);
+    fn count_in_line(self: *const Self, start_pos: Position, direction: Direction, max_count: comptime_int) u32 {
+        const state = self.at(start_pos);
+        var current_pos = @as(Direction, @intCast(start_pos));
 
-        // horizontalCheck
-        for (0..self.size - 4) |j| {
-            for (0..self.size) |i| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i, j + 1 }) == played and self.at(.{ i, j + 2 }) == played and self.at(.{ i, j + 3 }) == played and self.at(.{ i, j + 4 }) == played) {
-                    return true;
-                }
-            }
+        inline for (0..max_count) |i| {
+            if (!self.is_ipos_inbound(current_pos)) return i;
+
+            const pos = @as(Position, @intCast(current_pos));
+            if (self.at(pos) != state) return i;
+
+            current_pos = current_pos + direction;
         }
-        // verticalCheck
-        for (0..self.size - 4) |i| {
-            for (0..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i + 1, j }) == played and self.at(.{ i + 2, j }) == played and self.at(.{ i + 3, j }) == played and self.at(.{ i + 4, j }) == played) {
-                    return true;
-                }
-            }
-        }
-        // ascendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (0..self.size - 4) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j + 1 }) == played and self.at(.{ i - 2, j + 2 }) == played and self.at(.{ i - 3, j + 3 }) == played and self.at(.{ i - 4, j + 4 }) == played) {
-                    return true;
-                }
-            }
-        }
-        // descendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (4..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j - 1 }) == played and self.at(.{ i - 2, j - 2 }) == played and self.at(.{ i - 3, j - 3 }) == played and self.at(.{ i - 4, j - 4 }) == played) {
-                    return true;
-                }
-            }
+        return max_count;
+    }
+
+    fn is_move_winning(self: *const Self, pos: Position) bool {
+        const played_cell = self.at(pos);
+        std.debug.assert(played_cell != .Empty);
+        const directions = [_]Direction{
+            .{ 1, 0 }, // Horizontal (-)
+            .{ 0, 1 }, // Vertical (|)
+            .{ 1, -1 }, // Main diagonal (\)
+            .{ 1, 1 }, // Anti-diagonal (/)
+        };
+
+        inline for (directions) |dir| {
+            const count = self.count_in_line(pos, dir, cells_to_align) +
+                self.count_in_line(pos, -dir, cells_to_align) - 1;
+            if (count >= cells_to_align) return true;
         }
         return false;
     }
