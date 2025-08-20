@@ -60,9 +60,10 @@ pub const Error = error{
 
 pub const Game = struct {
     const Self = @This();
+    const cells_to_align = 5;
 
     size: u32,
-    board: []CellState,
+    internal_board: []CellState,
     allocator: std.mem.Allocator,
 
     pub fn init(size: u32, allocator: std.mem.Allocator) Allocator.Error!Game {
@@ -70,14 +71,18 @@ pub const Game = struct {
         @memset(b, .Empty);
         return .{
             .size = size,
-            .board = b,
+            .internal_board = b,
             .allocator = allocator,
         };
     }
 
+    inline fn reset(self: *Self) void {
+        @memset(self.internal_board, .Empty);
+    }
+
     inline fn get_idx_from_pos(self: *const Self, pos: Position) usize {
         const idx = pos[0] + pos[1] * self.size;
-        std.debug.assert(idx < self.board.len);
+        std.debug.assert(idx < self.internal_board.len);
         return idx;
     }
 
@@ -86,47 +91,45 @@ pub const Game = struct {
         return pos[0] < s and pos[1] < s;
     }
 
-    inline fn at(self: *const Self, pos: Position) CellState {
-        return self.board[self.get_idx_from_pos(pos)];
+    inline fn is_ipos_inbound(self: *const Self, pos: @Vector(2, isize)) bool {
+        const s: isize = @intCast(self.size);
+        return pos[0] >= 0 and pos[1] >= 0 and pos[0] < s and pos[1] < s;
     }
 
-    // TODO: Optimize and rewrite this function, it is ultra ugly
-    fn is_move_winning(self: *const Self, pos: Position) bool {
-        // Absolutely horrendous function, but it's fast enough so idrc
-        // Taken from https://stackoverflow.com/a/38211417 cause I couldn't be bothered :)
-        const played = self.at(pos);
+    inline fn at(self: *const Self, pos: Position) CellState {
+        return self.internal_board[self.get_idx_from_pos(pos)];
+    }
 
-        // horizontalCheck
-        for (0..self.size - 4) |j| {
-            for (0..self.size) |i| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i, j + 1 }) == played and self.at(.{ i, j + 2 }) == played and self.at(.{ i, j + 3 }) == played and self.at(.{ i, j + 4 }) == played) {
-                    return true;
-                }
-            }
+    fn count_in_line(self: *const Self, start_pos: Position, comptime direction: @Vector(2, isize)) u32 {
+        const state = self.at(start_pos);
+        std.debug.assert(state != .Empty);
+        var current_pos: @Vector(2, isize) = @intCast(start_pos);
+
+        inline for (0..cells_to_align) |i| {
+            if (!self.is_ipos_inbound(current_pos)) return i;
+
+            const pos = @as(Position, @intCast(current_pos));
+            if (self.at(pos) != state) return i;
+
+            current_pos = current_pos + direction;
         }
-        // verticalCheck
-        for (0..self.size - 4) |i| {
-            for (0..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i + 1, j }) == played and self.at(.{ i + 2, j }) == played and self.at(.{ i + 3, j }) == played and self.at(.{ i + 4, j }) == played) {
-                    return true;
-                }
-            }
-        }
-        // ascendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (0..self.size - 4) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j + 1 }) == played and self.at(.{ i - 2, j + 2 }) == played and self.at(.{ i - 3, j + 3 }) == played and self.at(.{ i - 4, j + 4 }) == played) {
-                    return true;
-                }
-            }
-        }
-        // descendingDiagonalCheck
-        for (4..self.size) |i| {
-            for (4..self.size) |j| {
-                if (self.at(.{ i, j }) == played and self.at(.{ i - 1, j - 1 }) == played and self.at(.{ i - 2, j - 2 }) == played and self.at(.{ i - 3, j - 3 }) == played and self.at(.{ i - 4, j - 4 }) == played) {
-                    return true;
-                }
-            }
+        return cells_to_align;
+    }
+
+    fn is_move_winning(self: *const Self, pos: Position) bool {
+        const played_cell = self.at(pos);
+        std.debug.assert(played_cell != .Empty);
+        const directions = [_]@Vector(2, isize){
+            .{ 1, 0 }, // Horizontal (-)
+            .{ 0, 1 }, // Vertical (|)
+            .{ 1, -1 }, // Main diagonal (\)
+            .{ 1, 1 }, // Anti-diagonal (/)
+        };
+
+        inline for (directions) |dir| {
+            const count = self.count_in_line(pos, dir) +
+                self.count_in_line(pos, -dir) - 1;
+            if (count >= cells_to_align) return true;
         }
         return false;
     }
@@ -137,9 +140,9 @@ pub const Game = struct {
         if (!is_pos_inbound(self, pos))
             return Error.OutOfBound;
         const idx = get_idx_from_pos(self, pos);
-        if (self.board[idx] != .Empty)
+        if (self.internal_board[idx] != .Empty)
             return Error.AlreadyTaken;
-        self.board[idx] = move_type.to_cell();
+        self.internal_board[idx] = move_type.to_cell();
         return self.is_move_winning(pos);
     }
 
@@ -156,6 +159,231 @@ pub const Game = struct {
     }
 
     pub fn deinit(self: *const Self) void {
-        self.allocator.free(self.board);
+        self.allocator.free(self.internal_board);
     }
 };
+
+test "get_idx_from_pos calculates correct index" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    try std.testing.expectEqual(0, game.get_idx_from_pos(.{ 0, 0 }));
+    try std.testing.expectEqual(5, game.get_idx_from_pos(.{ 5, 0 }));
+    try std.testing.expectEqual(10, game.get_idx_from_pos(.{ 0, 1 }));
+    try std.testing.expectEqual(55, game.get_idx_from_pos(.{ 5, 5 }));
+    try std.testing.expectEqual(99, game.get_idx_from_pos(.{ 9, 9 }));
+}
+
+test "is_pos_inbound correctly identifies boundaries" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    // Test positions inside the bounds
+    try std.testing.expect(game.is_pos_inbound(.{ 0, 0 }));
+    try std.testing.expect(game.is_pos_inbound(.{ 9, 9 }));
+    try std.testing.expect(game.is_pos_inbound(.{ 5, 5 }));
+
+    // Test positions outside the bounds
+    try std.testing.expect(!game.is_pos_inbound(.{ 10, 0 }));
+    try std.testing.expect(!game.is_pos_inbound(.{ 0, 10 }));
+    try std.testing.expect(!game.is_pos_inbound(.{ 10, 10 }));
+    try std.testing.expect(!game.is_pos_inbound(.{ 100, 100 }));
+}
+
+test "is_move_winning detects Horizontal win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try game.place(.{ 6, 5 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 6, 5 }));
+    try std.testing.expect(game.is_move_winning(.{ 5, 5 }));
+    try std.testing.expect(game.is_move_winning(.{ 4, 5 }));
+    try std.testing.expect(game.is_move_winning(.{ 3, 5 }));
+    try std.testing.expect(game.is_move_winning(.{ 2, 5 }));
+}
+
+test "is_move_winning detects Vertical win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 5, 2 }, .Player2);
+    _ = try game.place(.{ 5, 3 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+    _ = try game.place(.{ 5, 5 }, .Player2);
+    _ = try game.place(.{ 5, 6 }, .Player2);
+    try std.testing.expect(game.is_move_winning(.{ 5, 6 }));
+    try std.testing.expect(game.is_move_winning(.{ 5, 2 }));
+}
+
+test "is_move_winning detects Main diagonal win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 1, 1 }, .Player1);
+    _ = try game.place(.{ 2, 2 }, .Player1);
+    _ = try game.place(.{ 3, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 5, 5 }));
+    try std.testing.expect(game.is_move_winning(.{ 1, 1 }));
+}
+
+test "is_move_winning detects Anti-diagonal win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 8, 1 }, .Player2);
+    _ = try game.place(.{ 7, 2 }, .Player2);
+    _ = try game.place(.{ 6, 3 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+    _ = try game.place(.{ 4, 5 }, .Player2);
+    try std.testing.expect(game.is_move_winning(.{ 7, 2 }));
+}
+
+test "is_move_winning detects No win (incomplete line)" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    try std.testing.expect(!game.is_move_winning(.{ 5, 5 }));
+}
+
+test "is_move_winning does not crash on near border check" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 1 }, .Player1);
+    _ = try game.place(.{ 1, 2 }, .Player1);
+    _ = try game.place(.{ 2, 3 }, .Player1);
+    _ = try game.place(.{ 3, 4 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 1, 2 }));
+}
+
+test "is_move_winning winning move at negative extremity" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 0 }, .Player1);
+    _ = try game.place(.{ 1, 0 }, .Player1);
+    _ = try game.place(.{ 2, 0 }, .Player1);
+    _ = try game.place(.{ 3, 0 }, .Player1);
+    _ = try game.place(.{ 4, 0 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 4, 0 }));
+}
+
+test "is_move_winning winning move at postive extremity" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 0 }, .Player1);
+    _ = try game.place(.{ 1, 0 }, .Player1);
+    _ = try game.place(.{ 2, 0 }, .Player1);
+    _ = try game.place(.{ 3, 0 }, .Player1);
+    _ = try game.place(.{ 4, 0 }, .Player1);
+    try std.testing.expect(game.is_move_winning(.{ 0, 0 }));
+}
+
+test "is_move_winning line broke with another player piece" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 1, 1 }, .Player1);
+    _ = try game.place(.{ 2, 2 }, .Player1);
+    _ = try game.place(.{ 3, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player2);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    _ = try game.place(.{ 6, 6 }, .Player1);
+    try std.testing.expect(!game.is_move_winning(.{ 3, 3 }));
+}
+
+test "is_move_winning isolated piece within ennemy line" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 0, 1 }, .Player1);
+    _ = try game.place(.{ 0, 2 }, .Player1);
+    _ = try game.place(.{ 0, 3 }, .Player1);
+    _ = try game.place(.{ 0, 4 }, .Player2);
+    _ = try game.place(.{ 0, 5 }, .Player1);
+    _ = try game.place(.{ 0, 6 }, .Player1);
+    try std.testing.expect(!game.is_move_winning(.{ 0, 4 }));
+}
+
+test "is_move_winning intersection of 2 winning lines (Player 2 last move)" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 4, 1 }, .Player1);
+    _ = try game.place(.{ 4, 2 }, .Player1);
+    _ = try game.place(.{ 4, 3 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+
+    _ = try game.place(.{ 1, 4 }, .Player2);
+    _ = try game.place(.{ 2, 4 }, .Player2);
+    _ = try game.place(.{ 3, 4 }, .Player2);
+    _ = try game.place(.{ 4, 4 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+
+    try std.testing.expect(game.is_move_winning(.{ 4, 4 }));
+}
+
+test "is_move_winning intersection of 2 winning lines (Player 1 last move)" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 4, 1 }, .Player1);
+    _ = try game.place(.{ 4, 2 }, .Player1);
+    _ = try game.place(.{ 4, 3 }, .Player1);
+    _ = try game.place(.{ 4, 4 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+
+    _ = try game.place(.{ 1, 4 }, .Player2);
+    _ = try game.place(.{ 2, 4 }, .Player2);
+    _ = try game.place(.{ 3, 4 }, .Player2);
+    _ = try game.place(.{ 5, 4 }, .Player2);
+
+    try std.testing.expect(game.is_move_winning(.{ 4, 4 }));
+}
+
+test "places a valid move that doesn't win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    const is_win = try game.place(.{ 5, 5 }, .Player1);
+    try std.testing.expectEqual(false, is_win);
+    try std.testing.expectEqual(CellState.Player1, game.at(.{ 5, 5 }));
+}
+
+test "places on a cell that is already taken" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    try std.testing.expectError(Error.AlreadyTaken, game.place(.{ 5, 5 }, .Player2));
+}
+
+test "places on a cell out of the game bounds" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    try std.testing.expectError(Error.OutOfBound, game.place(.{ 11, 11 }, .Player2));
+}
+
+test "places a move that leads to a win" {
+    var game = try Game.init(10, std.testing.allocator);
+    defer game.deinit();
+
+    _ = try game.place(.{ 2, 5 }, .Player1);
+    _ = try game.place(.{ 3, 5 }, .Player1);
+    _ = try game.place(.{ 4, 5 }, .Player1);
+    _ = try game.place(.{ 5, 5 }, .Player1);
+    try std.testing.expect(try game.place(.{ 6, 5 }, .Player1));
+}
