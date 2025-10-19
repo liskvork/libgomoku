@@ -1,8 +1,8 @@
 .{
     .name = .libgomoku,
     .fingerprint = 0xade1cb20c8c93956,
-    .version = "0.1.1",
-    .minimum_zig_version = "0.14.0",
+    .version = "0.2.0",
+    .minimum_zig_version = "0.15.2",
 
     .dependencies = .{},
     .paths = .{

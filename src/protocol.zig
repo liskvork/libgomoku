@@ -167,7 +167,7 @@ fn parse_ko(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
 fn about_cleanup(out: *std.ArrayList(ClientInfo), allocator: std.mem.Allocator) ?ClientCommand {
     for (out.items) |i|
         i.deinit(allocator);
-    out.deinit();
+    out.deinit(allocator);
     return null;
 }
 
@@ -176,7 +176,7 @@ fn about_cleanup(out: *std.ArrayList(ClientInfo), allocator: std.mem.Allocator) 
 // Parses something like the following (taken directly from the documentation)
 // name="SmortBrain",version="1.0",author="emneo",country="FR",www="emneo.dev"
 fn parse_about_response(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
-    var result = std.ArrayList(ClientInfo).init(allocator);
+    var result = std.ArrayList(ClientInfo){};
     var rest = std.mem.trim(u8, msg, &std.ascii.whitespace);
     while (rest.len > 0) {
         const equal_idx = std.mem.indexOf(u8, rest, "=") orelse return about_cleanup(&result, allocator);
@@ -187,7 +187,7 @@ fn parse_about_response(msg: []const u8, allocator: std.mem.Allocator) !?ClientC
         const end_quote = std.mem.indexOf(u8, rest, "\"") orelse return about_cleanup(&result, allocator);
         const v = rest[0..end_quote];
         rest = std.mem.trim(u8, rest[end_quote + 1 ..], &std.ascii.whitespace);
-        try result.append(try ClientInfo.init(allocator, k, v));
+        try result.append(allocator, try ClientInfo.init(allocator, k, v));
         if (rest.len == 0)
             continue;
         const next_comma = std.mem.indexOf(u8, rest, ",") orelse return about_cleanup(&result, allocator);
@@ -251,7 +251,7 @@ test "about name version www" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse(
+    var cmd = try parse(
         "name   =\"    funny    \",\t\t      \t version\t =  \"1\t. 0\",www =       \"em\tneo.dev\"",
         alloc,
     );
@@ -259,12 +259,12 @@ test "about name version www" {
     defer {
         for (cmd.?.ResponseAbout.items) |i|
             i.deinit(alloc);
-        cmd.?.ResponseAbout.deinit();
+        cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo).init(alloc);
-    defer expected.deinit();
-    try expected.appendSlice(&.{
+    var expected = std.ArrayList(ClientInfo){};
+    defer expected.deinit(alloc);
+    try expected.appendSlice(alloc, &.{
         .{ .k = "name", .v = "    funny    " },
         .{ .k = "version", .v = "1\t. 0" },
         .{ .k = "www", .v = "em\tneo.dev" },
@@ -311,17 +311,17 @@ test "about version www" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("version=\"1.0\",www=\"emneo.dev\"", alloc);
+    var cmd = try parse("version=\"1.0\",www=\"emneo.dev\"", alloc);
     try t.expect(cmd != null);
     defer {
         for (cmd.?.ResponseAbout.items) |i|
             i.deinit(alloc);
-        cmd.?.ResponseAbout.deinit();
+        cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo).init(alloc);
-    defer expected.deinit();
-    try expected.appendSlice(&.{
+    var expected = std.ArrayList(ClientInfo){};
+    defer expected.deinit(alloc);
+    try expected.appendSlice(alloc, &.{
         .{ .k = "version", .v = "1.0" },
         .{ .k = "www", .v = "emneo.dev" },
     });
@@ -335,17 +335,17 @@ test "about just name" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("name=\"funny\"", alloc);
+    var cmd = try parse("name=\"funny\"", alloc);
     try t.expect(cmd != null);
     defer {
         for (cmd.?.ResponseAbout.items) |i|
             i.deinit(alloc);
-        cmd.?.ResponseAbout.deinit();
+        cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo).init(alloc);
-    defer expected.deinit();
-    try expected.appendSlice(&.{.{ .k = "name", .v = "funny" }});
+    var expected = std.ArrayList(ClientInfo){};
+    defer expected.deinit(alloc);
+    try expected.appendSlice(alloc, &.{.{ .k = "name", .v = "funny" }});
 
     try t.expectEqualDeep(cmd, ClientCommand{
         .ResponseAbout = expected,
