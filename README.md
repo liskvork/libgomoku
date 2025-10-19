@@ -4,11 +4,13 @@ Game and protocol library for the gomoku game.
 
 Made to be used by liskvork.
 
-Main repository URL: https://github.com/liskvork/libgomoku
+Main repository URL: https://git.sr.ht/~emneo/libgomoku
 
 ## Contribution
 
-Please take a look at the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+Please take a look at the [CONTRIBUTING.md](CONTRIBUTING.md) file, then consider
+sending a patch on the
+[development mailing list](https://lists.sr.ht/~emneo/liskvork-devel).
 
 ## License
 
