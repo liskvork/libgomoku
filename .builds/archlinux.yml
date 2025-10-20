@@ -1,0 +1,7 @@
+image: archlinux
+packages:
+    - zig
+tasks:
+    - test: |
+        cd libgomoku
+        zig build test --summary all
