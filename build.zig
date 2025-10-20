@@ -3,7 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const llvm = b.option(bool, "llvm", "Use LLVM backend") orelse true;
+    const llvm = b.option(bool, "llvm", "Use LLVM backend");
 
     const game = b.addModule("gomoku_game", .{
         .target = target,
