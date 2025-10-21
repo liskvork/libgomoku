@@ -4,4 +4,4 @@ packages:
 tasks:
     - test: |
         cd libgomoku
-        zig build test --summary all
+        time zig build test --summary all
