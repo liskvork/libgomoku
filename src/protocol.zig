@@ -2,9 +2,11 @@ const std = @import("std");
 
 const game = @import("gomoku_game");
 
-const SliceError = error{
+const Error = error{
     SliceTooSmall,
     NonWhitespaceInTrim,
+    UnknownCommand,
+    BadCommand,
 };
 
 fn all_respect(T: type, slice: []const T, predicate: fn (val: T) bool) bool {
@@ -21,9 +23,9 @@ inline fn is_all_whitespace(slice: []const u8) bool {
 
 fn skip_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
     if (slice.len < n)
-        return SliceError.SliceTooSmall;
+        return Error.SliceTooSmall;
     if (!is_all_whitespace(slice[0..n]))
-        return SliceError.NonWhitespaceInTrim;
+        return Error.NonWhitespaceInTrim;
     return slice[n..];
 }
 
@@ -58,18 +60,16 @@ pub const ClientCommandLog = struct {
 
     msg_type: ClientCommandLogType,
     data: []const u8,
-    allocator: std.mem.Allocator,
 
-    fn init(log_type: ClientCommandLogType, data: []const u8, allocator: std.mem.Allocator) !ClientCommandLog {
+    fn init(log_type: ClientCommandLogType, data: []const u8) !ClientCommandLog {
         return .{
             .msg_type = log_type,
-            .data = try allocator.dupe(u8, data),
-            .allocator = allocator,
+            .data = data,
         };
     }
 
-    pub fn deinit(self: Self) void {
-        self.allocator.free(self.data);
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        allocator.free(self.data);
     }
 };
 
@@ -77,18 +77,16 @@ const ClientResponseKO = struct {
     const Self = @This();
 
     data: ?[]const u8,
-    allocator: std.mem.Allocator,
 
-    fn init(data: ?[]const u8, allocator: std.mem.Allocator) !Self {
+    fn init(data: ?[]const u8) !Self {
         return .{
-            .data = if (data) |d| try allocator.dupe(u8, d) else null,
-            .allocator = allocator,
+            .data = data,
         };
     }
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
         if (self.data) |d|
-            self.allocator.free(d);
+            allocator.free(d);
     }
 };
 
@@ -101,10 +99,10 @@ pub const ClientCommand = union(enum) {
     ResponsePosition: game.Position,
     ResponseAbout: std.ArrayList(ClientInfo),
 
-    pub fn deinit(self: Self) void {
+    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
         switch (self) {
-            .CommandLog => |v| v.deinit(),
-            .ResponseKO => |v| v.deinit(),
+            .CommandLog => |v| v.deinit(allocator),
+            .ResponseKO => |v| v.deinit(allocator),
             else => {},
         }
     }
@@ -117,49 +115,68 @@ const log_starters = [_][]const u8{
     "UNKNOWN",
 };
 
-fn parse_log(msg: []const u8, idx: usize, allocator: std.mem.Allocator) !?ClientCommand {
-    const starter = log_starters[idx];
-    const ws_data = skip_n_whitespace(msg[starter.len..], 1) catch {
-        return null;
-    };
+fn parse_log(r: *std.io.Reader, idx: usize, allocator: std.mem.Allocator) !ClientCommand {
+    try r.discardAll(log_starters[idx].len);
+    if (!std.ascii.isWhitespace(try r.peekByte()))
+        return Error.UnknownCommand;
 
-    const data = std.mem.trim(u8, ws_data, &std.ascii.whitespace);
+    while (std.ascii.isWhitespace(try r.peekByte())) try r.discardAll(1);
 
-    if (data.len == 0)
-        return null;
     return .{
         .CommandLog = try ClientCommandLog.init(
             @enumFromInt(idx),
-            data,
-            allocator,
+            try r.allocRemaining(allocator, .unlimited),
         ),
     };
 }
 
-fn parse_ok(msg: []const u8) ?ClientCommand {
-    const rest = msg[2..]; // Skip the start
-    if (!is_all_whitespace(rest))
-        return null;
-    return .ResponseOK;
+fn parse_ok(r: *std.io.Reader) !ClientCommand {
+    try r.discardAll(2);
+
+    while (true) {
+        const b = r.peekByte() catch |e| {
+            return switch (e) {
+                error.EndOfStream => ClientCommand.ResponseOK,
+                else => e,
+            };
+        };
+        if (!std.ascii.isWhitespace(b))
+            return Error.BadCommand;
+        r.toss(1);
+    }
 }
 
-fn parse_ko(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
-    const rest = msg[2..];
+fn parse_ko(r: *std.io.Reader, allocator: std.mem.Allocator) !ClientCommand {
+    try r.discardAll(2);
 
-    // Check if there is a message with the KO
-    if (is_all_whitespace(rest))
-        return .{
-            .ResponseKO = try ClientResponseKO.init(null, allocator),
+    const fb = r.takeByte() catch |e| {
+        return switch (e) {
+            error.EndOfStream => .{
+                .ResponseKO = try ClientResponseKO.init(null),
+            },
+            else => e,
         };
-
-    const ws_data = skip_n_whitespace(rest, 1) catch {
-        return null;
     };
+    if (!std.ascii.isWhitespace(fb))
+        return Error.BadCommand;
 
-    const data = std.mem.trim(u8, ws_data, &std.ascii.whitespace);
-    return .{
-        .ResponseKO = try ClientResponseKO.init(data, allocator),
-    };
+    while (true) {
+        const b = r.peekByte() catch |e| {
+            return switch (e) {
+                error.EndOfStream => .{
+                    .ResponseKO = try ClientResponseKO.init(null),
+                },
+                else => e,
+            };
+        };
+        if (!std.ascii.isWhitespace(b))
+            return .{
+                .ResponseKO = try ClientResponseKO.init(
+                    std.mem.trim(u8, try r.allocRemaining(allocator, .unlimited), &std.ascii.whitespace),
+                ),
+            };
+        r.toss(1);
+    }
 }
 
 // That is so ugly but I don't really have another idea right now
@@ -218,14 +235,15 @@ fn parse_turn(msg: []const u8) ?ClientCommand {
 }
 
 pub fn parse(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
+    var r = std.io.Reader.fixed(msg);
     for (log_starters, 0..) |s, i| {
         if (std.mem.startsWith(u8, msg, s))
-            return try parse_log(msg, i, allocator);
+            return try parse_log(&r, i, allocator);
     }
     if (std.mem.startsWith(u8, msg, "OK"))
-        return parse_ok(msg);
+        return try parse_ok(&r);
     if (std.mem.startsWith(u8, msg, "KO"))
-        return try parse_ko(msg, allocator);
+        return try parse_ko(&r, allocator);
     const tmp = try parse_about_response(msg, allocator);
     if (tmp != null)
         return tmp;
@@ -361,7 +379,6 @@ test "ko parsing" {
     try t.expectEqualDeep(cmd, ClientCommand{
         .ResponseKO = .{
             .data = null,
-            .allocator = alloc,
         },
     });
 }
@@ -375,7 +392,6 @@ test "ko parsing with whitespace" {
     try t.expectEqualDeep(cmd, ClientCommand{
         .ResponseKO = .{
             .data = null,
-            .allocator = alloc,
         },
     });
 }
@@ -386,12 +402,11 @@ test "ko parsing with data" {
 
     const cmd = try parse("KO YEAH THERE ARE SOME THINGS HERE", alloc);
     try t.expect(cmd != null);
-    defer cmd.?.deinit();
+    defer cmd.?.deinit(alloc);
 
     try t.expectEqualDeep(cmd, ClientCommand{
         .ResponseKO = .{
             .data = "YEAH THERE ARE SOME THINGS HERE",
-            .allocator = alloc,
         },
     });
 }
@@ -400,9 +415,8 @@ test "bad ko parsing" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("KOYEAH THERE ARE SOME THINGS HERE", alloc);
-
-    try t.expectEqual(cmd, null);
+    const cmd = parse("KOYEAH THERE ARE SOME THINGS HERE", alloc);
+    try t.expectError(Error.BadCommand, cmd);
 }
 
 test "ok parsing" {
@@ -427,18 +441,16 @@ test "bad ok parsing" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("OK YEAH THERE ARE SOME THINGS HERE", alloc);
-
-    try t.expectEqual(cmd, null);
+    const cmd = parse("OK YEAH THERE ARE SOME THINGS HERE", alloc);
+    try t.expectError(Error.BadCommand, cmd);
 }
 
 test "bad ok parsing 2" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("OKYEAH THERE ARE SOME THINGS HERE", alloc);
-
-    try t.expectEqual(cmd, null);
+    const cmd = parse("OKYEAH THERE ARE SOME THINGS HERE", alloc);
+    try t.expectError(Error.BadCommand, cmd);
 }
 
 test "debug log parsing" {
@@ -448,13 +460,12 @@ test "debug log parsing" {
     const cmd = try parse("DEBUG issou that works", alloc);
     try t.expect(cmd != null);
 
-    defer cmd.?.deinit();
+    defer cmd.?.deinit(alloc);
 
     try t.expectEqualDeep(cmd, ClientCommand{
         .CommandLog = .{
             .msg_type = ClientCommandLogType.Debug,
             .data = "issou that works",
-            .allocator = alloc,
         },
     });
 }
@@ -466,13 +477,12 @@ test "info log parsing with whitespace" {
     const cmd = try parse("MESSAGE \t  \t      issou that works", alloc);
     try t.expect(cmd != null);
 
-    defer cmd.?.deinit();
+    defer cmd.?.deinit(alloc);
 
     try t.expectEqualDeep(cmd, ClientCommand{
         .CommandLog = .{
             .msg_type = ClientCommandLogType.Info,
             .data = "issou that works",
-            .allocator = alloc,
         },
     });
 }
@@ -481,32 +491,32 @@ test "error log parsing no msg" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("ERROR", alloc);
-    try t.expect(cmd == null);
+    const cmd = parse("ERROR", alloc);
+    try t.expectError(error.EndOfStream, cmd);
 }
 
 test "error log parsing with garbage" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("ERRORILOVEFOODABITTOOMUCH", alloc);
-    try t.expect(cmd == null);
+    const cmd = parse("ERRORILOVEFOODABITTOOMUCH", alloc);
+    try t.expectError(Error.UnknownCommand, cmd);
 }
 
 test "unknown log parsing one whitespace" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("UNKNOWN ", alloc);
-    try t.expect(cmd == null);
+    const cmd = parse("UNKNOWN ", alloc);
+    try t.expectError(error.EndOfStream, cmd);
 }
 
 test "debug log parsing multiple whitespace" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("DEBUG     \t    \t        ", alloc);
-    try t.expect(cmd == null);
+    const cmd = parse("DEBUG     \t    \t        ", alloc);
+    try t.expectError(error.EndOfStream, cmd);
 }
 
 test "error log parsing with whitespace" {
@@ -516,13 +526,12 @@ test "error log parsing with whitespace" {
     const cmd = try parse("ERROR\t  \t      issou that works", alloc);
     try t.expect(cmd != null);
 
-    defer cmd.?.deinit();
+    defer cmd.?.deinit(alloc);
 
     try t.expectEqualDeep(cmd, ClientCommand{
         .CommandLog = .{
             .msg_type = ClientCommandLogType.Error,
             .data = "issou that works",
-            .allocator = alloc,
         },
     });
 }
