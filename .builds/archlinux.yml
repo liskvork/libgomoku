@@ -1,6 +1,8 @@
 image: archlinux
 packages:
     - zig
+sources:
+    - https://git.sr.ht/~emneo/libgomoku
 tasks:
     - test: |
         cd libgomoku

@@ -2,12 +2,7 @@ const std = @import("std");
 
 const game = @import("gomoku_game");
 
-const Error = error{
-    SliceTooSmall,
-    NonWhitespaceInTrim,
-    UnknownCommand,
-    BadCommand,
-};
+const Error = error{ SliceTooSmall, NonWhitespaceInTrim, UnknownCommand, BadCommand, EndOfStream, NotEnoughWhitespace };
 
 fn all_respect(T: type, slice: []const T, predicate: fn (val: T) bool) bool {
     for (slice) |i| {
@@ -27,6 +22,27 @@ fn skip_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
     if (!is_all_whitespace(slice[0..n]))
         return Error.NonWhitespaceInTrim;
     return slice[n..];
+}
+
+fn skip_n_whitespace_minimum(r: *std.io.Reader, n: usize) !void {
+    for (try r.takeByte(), 1..) |b, i| {
+        if (!std.ascii.isWhitespace(b))
+            return Error.NotEnoughWhitespace;
+        if (i >= n)
+            break;
+    }
+
+    while (true) {
+        const b = r.peekByte() catch |e| {
+            return switch (e) {
+                error.EndOfStream => return,
+                else => return e,
+            };
+        };
+        if (!std.ascii.isWhitespace(b))
+            return;
+        r.toss(1);
+    }
 }
 
 pub const ClientInfo = struct {

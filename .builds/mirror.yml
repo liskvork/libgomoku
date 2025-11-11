@@ -4,6 +4,8 @@ secrets:
 environment:
     REPO: libgomoku
     GH_USER: liskvork
+sources:
+    - https://git.sr.ht/~emneo/libgomoku
 tasks:
     - check-source: |
         if [ "$BUILD_SUBMITTER" != "git.sr.ht" ]; then \
