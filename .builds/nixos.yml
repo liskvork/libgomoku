@@ -6,6 +6,9 @@ environment:
 sources:
   - https://git.sr.ht/~emneo/libgomoku
 tasks:
+  - check_flake: |
+      cd libgomoku
+      time nix flake check --all-systems
   - setup_environment: |
       cd libgomoku
       time nix develop --command bash -c "true"
