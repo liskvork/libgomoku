@@ -23,7 +23,6 @@ pub fn build(b: *std.Build) !void {
 
     const unit_tests_protocol = b.addTest(.{
         .root_module = protocol,
-        .test_runner = .{ .path = b.path("test_runner.zig"), .mode = .simple },
         .use_llvm = llvm,
     });
 
@@ -37,7 +36,6 @@ pub fn build(b: *std.Build) !void {
 
     const unit_tests_game = b.addTest(.{
         .root_module = game,
-        .test_runner = .{ .path = b.path("test_runner.zig"), .mode = .simple },
         .use_llvm = llvm,
     });
 
