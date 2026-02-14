@@ -131,7 +131,7 @@ const log_starters = [_][]const u8{
     "UNKNOWN",
 };
 
-fn parse_log(r: *std.io.Reader, idx: usize, allocator: std.mem.Allocator) !ClientCommand {
+fn parse_log(r: *std.Io.Reader, idx: usize, allocator: std.mem.Allocator) !ClientCommand {
     try r.discardAll(log_starters[idx].len);
     if (!std.ascii.isWhitespace(try r.peekByte()))
         return Error.UnknownCommand;
@@ -146,7 +146,7 @@ fn parse_log(r: *std.io.Reader, idx: usize, allocator: std.mem.Allocator) !Clien
     };
 }
 
-fn parse_ok(r: *std.io.Reader) !ClientCommand {
+fn parse_ok(r: *std.Io.Reader) !ClientCommand {
     try r.discardAll(2);
 
     while (true) {
@@ -162,7 +162,7 @@ fn parse_ok(r: *std.io.Reader) !ClientCommand {
     }
 }
 
-fn parse_ko(r: *std.io.Reader, allocator: std.mem.Allocator) !ClientCommand {
+fn parse_ko(r: *std.Io.Reader, allocator: std.mem.Allocator) !ClientCommand {
     try r.discardAll(2);
 
     const fb = r.takeByte() catch |e| {
@@ -251,7 +251,7 @@ fn parse_turn(msg: []const u8) ?ClientCommand {
 }
 
 pub fn parse(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
-    var r = std.io.Reader.fixed(msg);
+    var r = std.Io.Reader.fixed(msg);
     for (log_starters, 0..) |s, i| {
         if (std.mem.startsWith(u8, msg, s))
             return try parse_log(&r, i, allocator);
@@ -290,23 +290,19 @@ test "about name version www" {
         alloc,
     );
     try t.expect(cmd != null);
+    try t.expect(cmd.? == .ResponseAbout);
     defer {
         for (cmd.?.ResponseAbout.items) |i|
             i.deinit(alloc);
         cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo){};
-    defer expected.deinit(alloc);
-    try expected.appendSlice(alloc, &.{
+    const expected = [_]ClientInfo{
         .{ .k = "name", .v = "    funny    " },
         .{ .k = "version", .v = "1\t. 0" },
         .{ .k = "www", .v = "em\tneo.dev" },
-    });
-
-    try t.expectEqualDeep(cmd, ClientCommand{
-        .ResponseAbout = expected,
-    });
+    };
+    try t.expectEqualDeep(cmd.?.ResponseAbout.items, &expected);
 }
 
 test "turn 0,0" {
@@ -347,22 +343,19 @@ test "about version www" {
 
     var cmd = try parse("version=\"1.0\",www=\"emneo.dev\"", alloc);
     try t.expect(cmd != null);
+    try t.expect(cmd.? == .ResponseAbout);
     defer {
         for (cmd.?.ResponseAbout.items) |i|
             i.deinit(alloc);
         cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo){};
-    defer expected.deinit(alloc);
-    try expected.appendSlice(alloc, &.{
+    const expected = [_]ClientInfo{
         .{ .k = "version", .v = "1.0" },
         .{ .k = "www", .v = "emneo.dev" },
-    });
+    };
 
-    try t.expectEqualDeep(cmd, ClientCommand{
-        .ResponseAbout = expected,
-    });
+    try t.expectEqualDeep(cmd.?.ResponseAbout.items, &expected);
 }
 
 test "about just name" {
