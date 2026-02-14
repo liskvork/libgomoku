@@ -1,0 +1,14 @@
+image: nixos/unstable
+repositories:
+  nixpkgs: https://nixos.org/channels/nixpkgs-unstable
+environment:
+  NIX_CONFIG: "experimental-features = nix-command flakes"
+sources:
+  - https://git.sr.ht/~emneo/libgomoku
+tasks:
+  - setup_environment: |
+      cd libgomoku
+      time nix develop --command bash -c "true"
+  - test: |
+      cd libgomoku
+      time nix develop --command bash -c "zig build test --summary all"
