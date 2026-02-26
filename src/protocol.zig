@@ -2,7 +2,14 @@ const std = @import("std");
 
 const game = @import("gomoku_game");
 
-const Error = error{ SliceTooSmall, NonWhitespaceInTrim, UnknownCommand, BadCommand, EndOfStream, NotEnoughWhitespace };
+const Error = error{
+    SliceTooSmall,
+    NonWhitespaceInTrim,
+    UnknownCommand,
+    BadCommand,
+    EndOfStream,
+    NotEnoughWhitespace,
+};
 
 fn all_respect(T: type, slice: []const T, predicate: fn (val: T) bool) bool {
     for (slice) |i| {
