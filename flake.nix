@@ -71,14 +71,21 @@
               };
             };
 
-          formatter = pkgs.nixpkgs-fmt;
-          devShells.default = pkgs.mkShell {
-            inherit (checks.pre-commit-check) shellHook;
-            packages = [
-              zigPackage
-              zlsPackage
-              pkgs.nixfmt
-            ];
+          formatter = pkgs.nixfmt;
+          devShells = {
+            default = pkgs.mkShell {
+              inherit (checks.pre-commit-check) shellHook;
+              packages = [
+                zigPackage
+                zlsPackage
+                pkgs.nixfmt
+              ];
+            };
+            ci = pkgs.mkShell {
+              packages = [
+                zigPackage
+              ];
+            };
           };
         }
       );
