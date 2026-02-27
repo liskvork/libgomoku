@@ -22,13 +22,15 @@ sources:
 tasks:
   - install_nix: |
       sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --no-daemon
-      . /home/build/.nix-profile/etc/profile.d/nix.sh
   - check_flake: |
+      . /home/build/.nix-profile/etc/profile.d/nix.sh
       cd libgomoku
       time nix flake check --all-systems
   - setup_environment: |
+      . /home/build/.nix-profile/etc/profile.d/nix.sh
       cd libgomoku
       time nix develop .#ci --command bash -c "true"
   - test: |
+      . /home/build/.nix-profile/etc/profile.d/nix.sh
       cd libgomoku
       time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
