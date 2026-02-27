@@ -1,9 +1,27 @@
-image: nixos/25.05
+#image: nixos/25.05
+#environment:
+#  NIX_CONFIG: "experimental-features = nix-command flakes"
+#sources:
+#  - https://git.sr.ht/~emneo/libgomoku
+#tasks:
+#  - check_flake: |
+#      cd libgomoku
+#      time nix flake check --all-systems
+#  - setup_environment: |
+#      cd libgomoku
+#      time nix develop .#ci --command bash -c "true"
+#  - test: |
+#      cd libgomoku
+#      time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
+
+image: alpine/edge
 environment:
   NIX_CONFIG: "experimental-features = nix-command flakes"
 sources:
   - https://git.sr.ht/~emneo/libgomoku
 tasks:
+  - install_nix: |
+      sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --no-daemon
   - check_flake: |
       cd libgomoku
       time nix flake check --all-systems
