@@ -1,6 +1,4 @@
-image: nixos/unstable
-repositories:
-  nixpkgs: https://nixos.org/channels/nixpkgs-unstable
+image: nixos/25.05
 environment:
   NIX_CONFIG: "experimental-features = nix-command flakes"
 sources:
