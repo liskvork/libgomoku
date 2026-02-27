@@ -14,4 +14,4 @@ tasks:
       time nix develop .#ci --command bash -c "true"
   - test: |
       cd libgomoku
-      time nix develop .#ci --command bash -c "zig build test --summary all"
+      time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
