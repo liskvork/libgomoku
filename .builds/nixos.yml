@@ -29,7 +29,7 @@ tasks:
   - setup_environment: |
       . /home/build/.nix-profile/etc/profile.d/nix.sh
       cd libgomoku
-      time nix develop .#ci --command bash -c "true"
+      time nix develop .#ci --command bash -c "false"
   - test: |
       . /home/build/.nix-profile/etc/profile.d/nix.sh
       cd libgomoku
