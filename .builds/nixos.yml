@@ -14,7 +14,7 @@
 #      cd libgomoku
 #      time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
 
-image: alpine/edge
+image: archlinux
 environment:
   NIX_CONFIG: "experimental-features = nix-command flakes"
 sources:
