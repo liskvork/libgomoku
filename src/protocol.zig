@@ -216,7 +216,7 @@ fn about_cleanup(out: *std.ArrayList(ClientInfo), allocator: std.mem.Allocator) 
 // Parses something like the following (taken directly from the documentation)
 // name="SmortBrain",version="1.0",author="emneo",country="FR",www="emneo.dev"
 fn parse_about_response(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
-    var result = std.ArrayList(ClientInfo){};
+    var result = std.ArrayList(ClientInfo).empty;
     var rest = std.mem.trim(u8, msg, &std.ascii.whitespace);
     while (rest.len > 0) {
         const equal_idx = std.mem.indexOf(u8, rest, "=") orelse return about_cleanup(&result, allocator);
@@ -377,7 +377,7 @@ test "about just name" {
         cmd.?.ResponseAbout.deinit(alloc);
     }
 
-    var expected = std.ArrayList(ClientInfo){};
+    var expected = std.ArrayList(ClientInfo).empty;
     defer expected.deinit(alloc);
     try expected.appendSlice(alloc, &.{.{ .k = "name", .v = "funny" }});
 
