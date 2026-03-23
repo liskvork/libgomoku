@@ -1,36 +1,15 @@
-#image: nixos/25.05
-#environment:
-#  NIX_CONFIG: "experimental-features = nix-command flakes"
-#sources:
-#  - https://git.sr.ht/~emneo/libgomoku
-#tasks:
-#  - check_flake: |
-#      cd libgomoku
-#      time nix flake check --all-systems
-#  - setup_environment: |
-#      cd libgomoku
-#      time nix develop .#ci --command bash -c "true"
-#  - test: |
-#      cd libgomoku
-#      time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
-
-image: archlinux
+image: nixos/25.05
 environment:
-  NIX_CONFIG: "experimental-features = nix-command flakes"
+ NIX_CONFIG: "experimental-features = nix-command flakes"
 sources:
-  - https://git.sr.ht/~emneo/libgomoku
+ - https://git.sr.ht/~emneo/libgomoku
 tasks:
-  - install_nix: |
-      sh <(curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install) --no-daemon
-  - check_flake: |
-      . /home/build/.nix-profile/etc/profile.d/nix.sh
-      cd libgomoku
-      time nix flake check --all-systems
-  - setup_environment: |
-      . /home/build/.nix-profile/etc/profile.d/nix.sh
-      cd libgomoku
-      time nix develop .#ci --command bash -c "false"
-  - test: |
-      . /home/build/.nix-profile/etc/profile.d/nix.sh
-      cd libgomoku
-      time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
+ - check_flake: |
+     cd libgomoku
+     time nix flake check --all-systems
+ - setup_environment: |
+     cd libgomoku
+     time nix develop .#ci --command bash -c "true"
+ - test: |
+     cd libgomoku
+     time nix develop .#ci --command bash -c "zig build test --verbose --summary all"
