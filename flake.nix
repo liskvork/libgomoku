@@ -79,6 +79,7 @@
                 zigPackage
                 zlsPackage
                 pkgs.nixfmt
+                pkgs.hut
               ];
             };
             ci = pkgs.mkShell {
