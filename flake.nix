@@ -75,11 +75,11 @@
           devShells = {
             default = pkgs.mkShell {
               inherit (checks.pre-commit-check) shellHook;
-              packages = [
+              packages = with pkgs; [
                 zigPackage
                 zlsPackage
-                pkgs.nixfmt
-                pkgs.hut
+                nixfmt
+                hut
               ];
             };
             ci = pkgs.mkShell {
