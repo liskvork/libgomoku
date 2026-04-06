@@ -23,7 +23,7 @@ inline fn is_all_whitespace(slice: []const u8) bool {
     return all_respect(u8, slice, std.ascii.isWhitespace);
 }
 
-fn skip_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
+fn toss_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
     if (slice.len < n)
         return Error.SliceTooSmall;
     if (!is_all_whitespace(slice[0..n]))
@@ -31,25 +31,28 @@ fn skip_n_whitespace(slice: []const u8, n: usize) ![]const u8 {
     return slice[n..];
 }
 
-fn skip_n_whitespace_minimum(r: *std.io.Reader, n: usize) !void {
-    for (try r.takeByte(), 1..) |b, i| {
-        if (!std.ascii.isWhitespace(b))
-            return Error.NotEnoughWhitespace;
-        if (i >= n)
-            break;
-    }
-
+fn toss_whitespace(r: *std.Io.Reader) !void {
     while (true) {
-        const b = r.peekByte() catch |e| {
+        const b = r.peekByte() catch |e|
             return switch (e) {
-                error.EndOfStream => return,
-                else => return e,
+                error.EndOfStream => {},
+                else => e,
             };
-        };
         if (!std.ascii.isWhitespace(b))
             return;
         r.toss(1);
     }
+}
+
+fn toss_n_whitespace_min(r: *std.Io.Reader, n: usize) !void {
+    for (0..n) |i| {
+        _ = i;
+        const b = try r.takeByte();
+        if (!std.ascii.isWhitespace(b))
+            return Error.NotEnoughWhitespace;
+    }
+    try toss_whitespace(r);
+    _ = try r.peekByte();
 }
 
 pub const ClientInfo = struct {
@@ -101,11 +104,15 @@ const ClientResponseKO = struct {
 
     data: ?[]const u8,
 
-    fn init(data: ?[]const u8) !Self {
+    fn init(data: ?[]const u8) Self {
         return .{
             .data = data,
         };
     }
+
+    const empty: Self = .{
+        .data = null,
+    };
 
     pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
         if (self.data) |d|
@@ -140,11 +147,11 @@ const log_starters = [_][]const u8{
 };
 
 fn parse_log(r: *std.Io.Reader, idx: usize, allocator: std.mem.Allocator) !ClientCommand {
-    try r.discardAll(log_starters[idx].len);
+    r.toss(log_starters[idx].len);
     if (!std.ascii.isWhitespace(try r.peekByte()))
         return Error.UnknownCommand;
 
-    while (std.ascii.isWhitespace(try r.peekByte())) try r.discardAll(1);
+    try toss_n_whitespace_min(r, 1);
 
     return .{
         .CommandLog = try ClientCommandLog.init(
@@ -155,52 +162,38 @@ fn parse_log(r: *std.Io.Reader, idx: usize, allocator: std.mem.Allocator) !Clien
 }
 
 fn parse_ok(r: *std.Io.Reader) !ClientCommand {
-    try r.discardAll(2);
+    r.toss("OK".len);
 
-    while (true) {
-        const b = r.peekByte() catch |e| {
-            return switch (e) {
-                error.EndOfStream => ClientCommand.ResponseOK,
-                else => e,
-            };
-        };
-        if (!std.ascii.isWhitespace(b))
-            return Error.BadCommand;
-        r.toss(1);
-    }
-}
+    try toss_whitespace(r);
 
-fn parse_ko(r: *std.Io.Reader, allocator: std.mem.Allocator) !ClientCommand {
-    try r.discardAll(2);
-
-    const fb = r.takeByte() catch |e| {
+    _ = r.peekByte() catch |e| {
         return switch (e) {
-            error.EndOfStream => .{
-                .ResponseKO = try ClientResponseKO.init(null),
-            },
+            error.EndOfStream => .ResponseOK,
             else => e,
         };
     };
-    if (!std.ascii.isWhitespace(fb))
-        return Error.BadCommand;
 
-    while (true) {
-        const b = r.peekByte() catch |e| {
-            return switch (e) {
-                error.EndOfStream => .{
-                    .ResponseKO = try ClientResponseKO.init(null),
-                },
-                else => e,
-            };
+    return Error.BadCommand;
+}
+
+fn parse_ko(r: *std.Io.Reader, allocator: std.mem.Allocator) !ClientCommand {
+    r.toss("KO".len);
+
+    if (r.peekByte() == error.EndOfStream)
+        return .{ .ResponseKO = .empty };
+
+    toss_n_whitespace_min(r, 1) catch |e| {
+        return switch (e) {
+            error.EndOfStream => .{ .ResponseKO = .empty },
+            else => e,
         };
-        if (!std.ascii.isWhitespace(b))
-            return .{
-                .ResponseKO = try ClientResponseKO.init(
-                    std.mem.trim(u8, try r.allocRemaining(allocator, .unlimited), &std.ascii.whitespace),
-                ),
-            };
-        r.toss(1);
-    }
+    };
+
+    return .{
+        .ResponseKO = ClientResponseKO.init(
+            std.mem.trim(u8, try r.allocRemaining(allocator, .unlimited), &std.ascii.whitespace),
+        ),
+    };
 }
 
 // That is so ugly but I don't really have another idea right now
@@ -274,17 +267,8 @@ fn parse_turn(r: *std.Io.Reader) !ClientCommand {
 
 fn parse_suggest(r: *std.Io.Reader) !ClientCommand {
     r.toss("SUGGEST".len);
-    var has_whitespace = false;
-    while (true) {
-        const b = try r.peekByte();
-        if (!std.ascii.isWhitespace(b)) {
-            if (has_whitespace)
-                break;
-            return Error.NotEnoughWhitespace;
-        }
-        has_whitespace = true;
-        r.toss(1);
-    }
+
+    try toss_n_whitespace_min(r, 1);
 
     return .{
         .ResponseSuggest = try parse_position(r),
@@ -547,7 +531,7 @@ test "bad ko parsing" {
     const alloc = t.allocator;
 
     const cmd = parse("KOYEAH THERE ARE SOME THINGS HERE", alloc);
-    try t.expectError(Error.BadCommand, cmd);
+    try t.expectError(Error.NotEnoughWhitespace, cmd);
 }
 
 test "ok parsing" {
