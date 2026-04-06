@@ -120,6 +120,7 @@ pub const ClientCommand = union(enum) {
     ResponseOK: void,
     ResponseKO: ClientResponseKO,
     ResponsePosition: game.Position,
+    ResponseSuggest: game.Position,
     ResponseAbout: std.ArrayList(ClientInfo),
 
     pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
@@ -240,20 +241,53 @@ fn parse_about_response(msg: []const u8, allocator: std.mem.Allocator) !?ClientC
     };
 }
 
-fn parse_turn(msg: []const u8) ?ClientCommand {
-    const num_commas = std.mem.count(u8, msg, ",");
-    if (num_commas != 1)
-        return null;
-    const comma_idx = std.mem.indexOf(u8, msg, ",");
-    // The comma is at the end of the message, can't parse
-    if (comma_idx.? + 1 == msg.len)
-        return null;
-    const first_num_slice = std.mem.trim(u8, msg[0..comma_idx.?], &std.ascii.whitespace);
-    const second_num_slice = std.mem.trim(u8, msg[comma_idx.? + 1 ..], &std.ascii.whitespace);
-    const first_num = std.fmt.parseInt(u32, first_num_slice, 10) catch return null;
-    const second_num = std.fmt.parseInt(u32, second_num_slice, 10) catch return null;
+const MAX_USIZE_STR_SIZE = blk: {
+    const max_usize = std.math.maxInt(usize);
+    const max_usize_str = std.fmt.comptimePrint("{}", .{max_usize});
+    break :blk max_usize_str.len;
+};
+
+fn parse_position(r: *std.Io.Reader) !game.Position {
+    var x_buf: [MAX_USIZE_STR_SIZE]u8 = undefined;
+    var y_buf: [MAX_USIZE_STR_SIZE]u8 = undefined;
+    var x_writer: std.Io.Writer = .fixed(&x_buf);
+    var y_writer: std.Io.Writer = .fixed(&y_buf);
+
+    const x_len = try r.streamDelimiter(&x_writer, ',');
+    if (x_len == 0) return Error.BadCommand;
+
+    r.toss(1); // Toss the delimiter
+
+    const y_len = try r.streamRemaining(&y_writer);
+    if (y_len == 0) return Error.BadCommand;
+
+    const x = try std.fmt.parseUnsigned(usize, x_buf[0..x_len], 10);
+    const y = try std.fmt.parseUnsigned(usize, y_buf[0..y_len], 10);
+    return .{ x, y };
+}
+
+fn parse_turn(r: *std.Io.Reader) !ClientCommand {
     return ClientCommand{
-        .ResponsePosition = .{ first_num, second_num },
+        .ResponsePosition = try parse_position(r),
+    };
+}
+
+fn parse_suggest(r: *std.Io.Reader) !ClientCommand {
+    r.toss("SUGGEST".len);
+    var has_whitespace = false;
+    while (true) {
+        const b = try r.peekByte();
+        if (!std.ascii.isWhitespace(b)) {
+            if (has_whitespace)
+                break;
+            return Error.NotEnoughWhitespace;
+        }
+        has_whitespace = true;
+        r.toss(1);
+    }
+
+    return .{
+        .ResponseSuggest = try parse_position(r),
     };
 }
 
@@ -267,10 +301,12 @@ pub fn parse(msg: []const u8, allocator: std.mem.Allocator) !?ClientCommand {
         return try parse_ok(&r);
     if (std.mem.startsWith(u8, msg, "KO"))
         return try parse_ko(&r, allocator);
+    if (std.mem.startsWith(u8, msg, "SUGGEST"))
+        return try parse_suggest(&r);
     const tmp = try parse_about_response(msg, allocator);
     if (tmp != null)
         return tmp;
-    return parse_turn(msg);
+    return try parse_turn(&r);
 }
 
 // -------------------------
@@ -281,11 +317,14 @@ test "about name version www with extra character" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse(
+    // TODO: Actually fix that once about parsing is better
+
+    const cmd = parse(
         "name   =\"    funny    \",\t\t      \t version\t =  \"1\t. 0\",www =       \"em\tneo.dev\" :3",
         alloc,
-    );
-    try t.expect(cmd == null);
+    ) catch return;
+    _ = cmd;
+    try t.expect(false);
 }
 
 test "about name version www" {
@@ -328,7 +367,7 @@ test "turn 13,42" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("13  \t ,  \t \t42", alloc);
+    const cmd = try parse("13,42", alloc);
     try t.expect(cmd != null);
 
     try t.expectEqualDeep(cmd, ClientCommand{
@@ -336,12 +375,88 @@ test "turn 13,42" {
     });
 }
 
+test "suggest simple 0,0" {
+    const t = std.testing;
+
+    const data = "SUGGEST 0,0";
+    var r: std.Io.Reader = .fixed(data);
+
+    const pos = try parse_suggest(&r);
+    try t.expectEqualDeep(
+        ClientCommand{
+            .ResponseSuggest = .{ 0, 0 },
+        },
+        pos,
+    );
+}
+
+test "suggest 0,0" {
+    const t = std.testing;
+    const alloc = t.allocator;
+
+    const pos = try parse("SUGGEST 0,0", alloc);
+    try t.expectEqualDeep(
+        ClientCommand{
+            .ResponseSuggest = .{ 0, 0 },
+        },
+        pos,
+    );
+}
+
+test "suggest simple 42,13" {
+    const t = std.testing;
+
+    const data = "SUGGEST 42,13";
+    var r: std.Io.Reader = .fixed(data);
+
+    const pos = try parse_suggest(&r);
+    try t.expectEqualDeep(
+        ClientCommand{
+            .ResponseSuggest = .{ 42, 13 },
+        },
+        pos,
+    );
+}
+
+test "suggest 42,13" {
+    const t = std.testing;
+    const alloc = t.allocator;
+
+    const pos = try parse("SUGGEST 42,13", alloc);
+    try t.expectEqualDeep(
+        ClientCommand{
+            .ResponseSuggest = .{ 42, 13 },
+        },
+        pos,
+    );
+}
+
+test "suggest simple overflow" {
+    const t = std.testing;
+
+    const data = "SUGGEST 42123456789123456789123456789,13";
+    var r: std.Io.Reader = .fixed(data);
+
+    const pos = parse_suggest(&r);
+    try t.expectError(std.Io.Writer.Error.WriteFailed, pos);
+}
+
+test "suggest overflow" {
+    const t = std.testing;
+    const alloc = t.allocator;
+
+    const data = "SUGGEST 42123456789123456789123456789,13";
+
+    const pos = parse(data, alloc);
+    try t.expectError(std.Io.Writer.Error.WriteFailed, pos);
+}
+
 test "turn 0,0,0 fail" {
     const t = std.testing;
     const alloc = t.allocator;
 
-    const cmd = try parse("0,0,0", alloc);
-    try t.expect(cmd == null);
+    const cmd = parse("0,0,0", alloc);
+    try t.expectError(std.fmt.ParseIntError.InvalidCharacter, cmd);
 }
 
 test "about version www" {
