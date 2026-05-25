@@ -9,11 +9,8 @@
     };
 
     zls-overlay = {
-      url = "github:zigtools/zls";
-      inputs = {
-        nixpkgs.follows = "nixpkgs";
-        zig-overlay.follows = "zig-overlay";
-      };
+      url = "github:zigtools/zls/0.16.x";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
 
     pre-commit-hooks = {
@@ -40,7 +37,7 @@
       (
         system:
         let
-          zigPackage = zig-overlay.packages.${system}.master;
+          zigPackage = zig-overlay.packages.${system}."0.16.0";
           zlsPackage = zls-overlay.packages.${system}.zls;
           pkgs = nixpkgs.legacyPackages.${system};
         in
