@@ -146,15 +146,15 @@ pub const Game = struct {
         return self.is_move_winning(pos);
     }
 
-    pub fn dump(self: *const Self, output_file: std.fs.File, colors: bool, pos_to_highlight: Position) !void {
+    pub fn dump(self: *const Self, io: std.Io, output_file: std.Io.File, colors: bool, pos_to_highlight: Position) !void {
         for (0..self.size) |x| {
             for (0..self.size) |y| {
-                try output_file.writeAll(self.at(.{ x, y }).to_slice(
+                try output_file.writeStreamingAll(io, self.at(.{ x, y }).to_slice(
                     colors,
                     pos_to_highlight[0] == x and pos_to_highlight[1] == y,
                 ));
             }
-            try output_file.writeAll("\n");
+            try output_file.writeStreamingAll(io, "\n");
         }
     }
 
